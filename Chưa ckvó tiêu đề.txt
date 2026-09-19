@@ -1,0 +1,1721 @@
+--[[
+    REZZY HUB v1.3 — FULL FIX
+    ✔ Info Panel hiển thị GIỮA MÀN HÌNH (FPS, Player, Pos, Status)
+    ✔ Fly engine mượt (RenderStepped + Lerp + BodyVelocity)
+    ✔ Auto Farm thông minh: Lấy → Detect → Về ổ → Giao → Lặp
+    ✔ Floating buttons luôn hiện
+]]
+
+print("═══════════════════════════════════════")
+print("🥚 REZZY HUB v1.3 — BOOT")
+print("═══════════════════════════════════════")
+
+-- ═══════════════ SERVICES ═══════════════
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
+local VirtualUser = game:GetService("VirtualUser")
+
+local LP = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Cache globals (performance)
+local task_wait = task.wait
+local task_spawn = task.spawn
+local task_delay = task.delay
+local pcall = pcall
+local math_floor = math.floor
+local math_abs = math.abs
+local math_max = math.max
+local math_min = math.min
+local math_clamp = math.clamp
+local math_huge = math.huge
+local math_random = math.random
+local string_format = string.format
+local string_lower = string.lower
+local string_find = string.find
+local table_insert = table.insert
+local table_remove = table.remove
+local Vector2_new = Vector2.new
+local Vector3_new = Vector3.new
+local CFrame_new = CFrame.new
+local CFrame_lookAt = CFrame.lookAt
+local Color3_RGB = Color3.fromRGB
+local Instance_new = Instance.new
+local UDim2_new = UDim2.new
+local UDim_new = UDim.new
+local KeyCode = Enum.KeyCode
+local UserInputType = Enum.UserInputType
+
+-- ═══════════════ PARENT ═══════════════
+local HIDDEN = CoreGui
+pcall(function()
+    if gethui then
+        local ok, h = pcall(gethui)
+        if ok and h then HIDDEN = h end
+    end
+end)
+
+local function SafeParent(gui)
+    if not gui then return end
+    pcall(function() gui.Parent = HIDDEN end)
+    if not gui.Parent then pcall(function() gui.Parent = CoreGui end) end
+    if not gui.Parent then pcall(function() gui.Parent = LP:WaitForChild("PlayerGui", 3) end) end
+end
+
+-- ═══════════════ HELPERS ═══════════════
+local function mk(cls, parent, props)
+    local i = Instance_new(cls)
+    if props then
+        for k, v in pairs(props) do
+            pcall(function() i[k] = v end)
+        end
+    end
+    if parent then pcall(function() i.Parent = parent end) end
+    return i
+end
+
+local function corner(p, r)
+    local c = Instance_new("UICorner")
+    c.CornerRadius = UDim_new(0, r or 8)
+    c.Parent = p
+    return c
+end
+
+local function stroke(p, col, thick, trans)
+    local s = Instance_new("UIStroke")
+    s.Color = col or Color3_RGB(0, 220, 255)
+    s.Thickness = thick or 1
+    s.Transparency = trans or 0.4
+    s.Parent = p
+    return s
+end
+
+-- ═══════════════ STATE ═══════════════
+local S = {
+    char = nil, hrp = nil, hum = nil,
+    FarmMode = "off", FarmRunning = false,
+    FarmSpeed = 50, TeleSpeed = 80,
+    StealMode = "tele", Radius = 3000,
+    SafeNest = nil, HasNest = false,
+    EggsStolen = 0, EggsPlaced = 0,
+    MenuOpen = true,
+    LastScan = 0,
+    IsCarrying = false,
+    FlyMode = false, FlySpeed = 60,
+    FlyUp = false, FlyDown = false,
+    Vjoy = 0, VjoyActive = false,
+    Status = "Sẵn sàng",
+    ShowInfo = true,  -- Info panel bật/tắt
+    FPS = 60,
+    AntiAFK = false,
+}
+
+local Char, HRP, Hum
+local function UpdateChar()
+    Char = LP.Character
+    if Char then
+        HRP = Char:FindFirstChild("HumanoidRootPart")
+        Hum = Char:FindFirstChildOfClass("Humanoid")
+    else
+        HRP = nil; Hum = nil
+    end
+end
+UpdateChar()
+
+LP.CharacterAdded:Connect(function()
+    task_wait(0.5)
+    UpdateChar()
+    task_wait(0.5)
+    UpdateChar()
+end)
+
+-- ═══════════════ NOTIFY ═══════════════
+local NotifyGui = mk("ScreenGui", nil, {
+    Name = "RezzyNotify",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 99999,
+})
+SafeParent(NotifyGui)
+
+local NStack = {}
+
+local function Notify(kind, title, text, dur)
+    pcall(function()
+        dur = dur or 3
+        local col = kind == "success" and Color3_RGB(0, 255, 180)
+            or kind == "warn" and Color3_RGB(255, 180, 40)
+            or kind == "error" and Color3_RGB(255, 60, 90)
+            or Color3_RGB(0, 220, 255)
+
+        if #NStack >= 3 then
+            local old = table_remove(NStack, 1)
+            pcall(function() old:Destroy() end)
+        end
+
+        local card = mk("Frame", NotifyGui, {
+            Size = UDim2_new(0, 260, 0, 52),
+            Position = UDim2_new(1, -276, 1, -70 - (#NStack) * 58),
+            BackgroundColor3 = Color3_RGB(12, 12, 18),
+            BackgroundTransparency = 0.1,
+            BorderSizePixel = 0,
+            ZIndex = 100000,
+        })
+        corner(card, 10)
+        stroke(card, col, 1.5, 0.3)
+
+        mk("TextLabel", card, {
+            Size = UDim2_new(0, 34, 1, 0),
+            Position = UDim2_new(0, 6, 0, 0),
+            BackgroundTransparency = 1,
+            Text = kind == "success" and "✅" or kind == "warn" and "⚠️" or kind == "error" and "❌" or "ℹ️",
+            TextSize = 18,
+            Font = Enum.Font.GothamBold,
+            ZIndex = 100001,
+        })
+        mk("TextLabel", card, {
+            Size = UDim2_new(1, -54, 0, 18),
+            Position = UDim2_new(0, 46, 0, 8),
+            BackgroundTransparency = 1,
+            Text = tostring(title or "Rezzy"),
+            Font = Enum.Font.GothamBold,
+            TextSize = 11,
+            TextColor3 = col,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 100001,
+        })
+        mk("TextLabel", card, {
+            Size = UDim2_new(1, -54, 0, 16),
+            Position = UDim2_new(0, 46, 0, 26),
+            BackgroundTransparency = 1,
+            Text = tostring(text or ""),
+            Font = Enum.Font.GothamMedium,
+            TextSize = 9,
+            TextColor3 = Color3_RGB(180, 180, 200),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextWrapped = true,
+            ZIndex = 100001,
+        })
+
+        table_insert(NStack, card)
+
+        task_delay(dur, function()
+            for i = 1, #NStack do
+                if NStack[i] == card then
+                    table_remove(NStack, i)
+                    break
+                end
+            end
+            if card.Parent then
+                TweenService:Create(card, TweenInfo.new(0.3), {
+                    BackgroundTransparency = 1,
+                    Position = UDim2_new(1, 12, 1, card.Position.Y.Offset),
+                }):Play()
+                task_wait(0.3)
+                pcall(function() card:Destroy() end)
+            end
+        end)
+    end)
+end
+
+-- ═══════════════ UI COMPONENTS ═══════════════
+local function UIHeading(parent, text)
+    return mk("TextLabel", parent, {
+        Size = UDim2_new(1, 0, 0, 18),
+        BackgroundTransparency = 1,
+        Text = "▬ " .. text,
+        Font = Enum.Font.GothamBold,
+        TextSize = 11,
+        TextColor3 = Color3_RGB(0, 220, 255),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 12,
+    })
+end
+
+local function UIButton(parent, text, color, cb)
+    local b = mk("TextButton", parent, {
+        Size = UDim2_new(0, 155, 0, 28),
+        BackgroundColor3 = color or Color3_RGB(26, 26, 36),
+        BackgroundTransparency = 0.15,
+        Text = text,
+        TextColor3 = Color3_RGB(240, 240, 250),
+        Font = Enum.Font.GothamSemibold,
+        TextSize = 10,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        ZIndex = 12,
+    })
+    corner(b, 5)
+    stroke(b, color or Color3_RGB(0, 220, 255), 1, 0.5)
+    b.MouseButton1Click:Connect(function() pcall(cb) end)
+    return b
+end
+
+local function UIToggle(parent, text, default, cb)
+    local b = mk("TextButton", parent, {
+        Size = UDim2_new(0, 155, 0, 28),
+        BackgroundColor3 = default and Color3_RGB(0, 220, 255) or Color3_RGB(26, 26, 36),
+        BackgroundTransparency = default and 0.1 or 0.15,
+        Text = text,
+        TextColor3 = default and Color3_RGB(10, 10, 15) or Color3_RGB(240, 240, 250),
+        Font = Enum.Font.GothamSemibold,
+        TextSize = 10,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        ZIndex = 12,
+    })
+    corner(b, 5)
+    local s = stroke(b, default and Color3_RGB(0, 220, 255) or Color3_RGB(140, 140, 170), 1, 0.4)
+    local on = default
+    b.MouseButton1Click:Connect(function()
+        on = not on
+        b.BackgroundColor3 = on and Color3_RGB(0, 220, 255) or Color3_RGB(26, 26, 36)
+        b.BackgroundTransparency = on and 0.1 or 0.15
+        b.TextColor3 = on and Color3_RGB(10, 10, 15) or Color3_RGB(240, 240, 250)
+        s.Color = on and Color3_RGB(0, 220, 255) or Color3_RGB(140, 140, 170)
+        pcall(cb, on)
+    end)
+    return b
+end
+
+local function UISlider(parent, text, minV, maxV, defaultV, cb)
+    local c = mk("Frame", parent, {
+        Size = UDim2_new(1, 0, 0, 40),
+        BackgroundColor3 = Color3_RGB(26, 26, 36),
+        BackgroundTransparency = 0.25,
+        BorderSizePixel = 0,
+        ZIndex = 11,
+    })
+    corner(c, 6)
+    stroke(c, Color3_RGB(0, 220, 255), 1, 0.6)
+
+    mk("TextLabel", c, {
+        Size = UDim2_new(1, -60, 0, 14),
+        Position = UDim2_new(0, 8, 0, 3),
+        BackgroundTransparency = 1,
+        Text = text,
+        TextColor3 = Color3_RGB(240, 240, 250),
+        Font = Enum.Font.GothamBold,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 12,
+    })
+    local valLbl = mk("TextLabel", c, {
+        Size = UDim2_new(0, 50, 0, 14),
+        Position = UDim2_new(1, -58, 0, 3),
+        BackgroundTransparency = 1,
+        Text = tostring(defaultV),
+        Font = Enum.Font.GothamBlack,
+        TextSize = 11,
+        TextColor3 = Color3_RGB(0, 220, 255),
+        TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = 12,
+    })
+
+    local track = mk("Frame", c, {
+        Size = UDim2_new(1, -16, 0, 5),
+        Position = UDim2_new(0, 8, 0, 26),
+        BackgroundColor3 = Color3_RGB(40, 40, 52),
+        BorderSizePixel = 0,
+        ZIndex = 12,
+    })
+    corner(track, 3)
+
+    local fill = mk("Frame", track, {
+        Size = UDim2_new(math_clamp((defaultV - minV) / (maxV - minV), 0, 1), 0, 1, 0),
+        BackgroundColor3 = Color3_RGB(0, 220, 255),
+        BorderSizePixel = 0,
+        ZIndex = 13,
+    })
+    corner(fill, 3)
+
+    local dragging = false
+    local function upd(inp)
+        if track.AbsoluteSize.X <= 0 then return end
+        local ratio = math_clamp((inp.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        fill.Size = UDim2_new(ratio, 0, 1, 0)
+        local v = math_floor(minV + (maxV - minV) * ratio)
+        valLbl.Text = tostring(v)
+        pcall(cb, v)
+    end
+
+    track.InputBegan:Connect(function(inp)
+        if inp.UserInputType == UserInputType.MouseButton1 or inp.UserInputType == UserInputType.Touch then
+            dragging = true
+            upd(inp)
+        end
+    end)
+    track.InputEnded:Connect(function() dragging = false end)
+    UIS.InputChanged:Connect(function(inp)
+        if dragging and (inp.UserInputType == UserInputType.MouseMovement or inp.UserInputType == UserInputType.Touch) then
+            upd(inp)
+        end
+    end)
+    return c
+end
+
+-- ═══════════════ CENTER INFO PANEL (FIX #1) ═══════════════
+-- Hiển thị FPS / Player / Pos / Status ngay GIỮA màn hình
+local InfoGui = mk("ScreenGui", nil, {
+    Name = "RezzyInfo",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 99990,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+})
+SafeParent(InfoGui)
+
+local InfoPanel = mk("Frame", InfoGui, {
+    Size = UDim2_new(0, 320, 0, 130),
+    Position = UDim2_new(0.5, -160, 0.5, -65),  -- CHÍNH GIỮA
+    AnchorPoint = Vector2_new(0.5, 0.5),
+    BackgroundColor3 = Color3_RGB(12, 12, 18),
+    BackgroundTransparency = 0.15,
+    BorderSizePixel = 0,
+    ZIndex = 99990,
+    Visible = true,
+    Active = true,
+})
+corner(InfoPanel, 12)
+local infoStroke = stroke(InfoPanel, Color3_RGB(0, 220, 255), 1.5, 0.35)
+
+-- Hiệu ứng gradient animation
+local infoGrad = mk("UIGradient", InfoPanel, {
+    Color = ColorSequence.new(Color3_RGB(12, 12, 18), Color3_RGB(0, 30, 45)),
+    Rotation = 135,
+})
+
+mk("TextLabel", InfoPanel, {
+    Size = UDim2_new(1, -24, 0, 16),
+    Position = UDim2_new(0, 12, 0, 6),
+    BackgroundTransparency = 1,
+    Text = "🥚 REZZY HUB v1.3 — CHARACTER INFO",
+    Font = Enum.Font.GothamBlack,
+    TextSize = 11,
+    TextColor3 = Color3_RGB(0, 220, 255),
+    TextXAlignment = Enum.TextXAlignment.Center,
+    ZIndex = 99991,
+})
+
+local InfoLine1 = mk("TextLabel", InfoPanel, {
+    Size = UDim2_new(1, -24, 0, 16),
+    Position = UDim2_new(0, 12, 0, 28),
+    BackgroundTransparency = 1,
+    Text = "👤 -- | FPS: --",
+    Font = Enum.Font.Code,
+    TextSize = 11,
+    TextColor3 = Color3_RGB(240, 240, 250),
+    TextXAlignment = Enum.TextXAlignment.Center,
+    ZIndex = 99991,
+})
+
+local InfoLine2 = mk("TextLabel", InfoPanel, {
+    Size = UDim2_new(1, -24, 0, 16),
+    Position = UDim2_new(0, 12, 0, 46),
+    BackgroundTransparency = 1,
+    Text = "📍 Pos: --, --, --",
+    Font = Enum.Font.Code,
+    TextSize = 11,
+    TextColor3 = Color3_RGB(180, 200, 220),
+    TextXAlignment = Enum.TextXAlignment.Center,
+    ZIndex = 99991,
+})
+
+local InfoLine3 = mk("TextLabel", InfoPanel, {
+    Size = UDim2_new(1, -24, 0, 16),
+    Position = UDim2_new(0, 12, 0, 64),
+    BackgroundTransparency = 1,
+    Text = "🎮 Status: Sẵn sàng",
+    Font = Enum.Font.Code,
+    TextSize = 11,
+    TextColor3 = Color3_RGB(255, 200, 40),
+    TextXAlignment = Enum.TextXAlignment.Center,
+    ZIndex = 99991,
+})
+
+local InfoLine4 = mk("TextLabel", InfoPanel, {
+    Size = UDim2_new(1, -24, 0, 16),
+    Position = UDim2_new(0, 12, 0, 82),
+    BackgroundTransparency = 1,
+    Text = "🥚 Trộm: 0 | Giao: 0 | Túi: TRỐNG",
+    Font = Enum.Font.Code,
+    TextSize = 10,
+    TextColor3 = Color3_RGB(140, 200, 140),
+    TextXAlignment = Enum.TextXAlignment.Center,
+    ZIndex = 99991,
+})
+
+mk("TextLabel", InfoPanel, {
+    Size = UDim2_new(1, -24, 0, 14),
+    Position = UDim2_new(0, 12, 1, -18),
+    BackgroundTransparency = 1,
+    Text = "RightShift: Menu | F5: Fly | F1: Farm",
+    Font = Enum.Font.GothamMedium,
+    TextSize = 9,
+    TextColor3 = Color3_RGB(120, 120, 150),
+    TextXAlignment = Enum.TextXAlignment.Center,
+    ZIndex = 99991,
+})
+
+-- Drag để di chuyển info panel
+do
+    local dragging, dragStart, startPos
+    InfoPanel.InputBegan:Connect(function(inp)
+        if inp.UserInputType == UserInputType.MouseButton1 or inp.UserInputType == UserInputType.Touch then
+            dragging = true
+            dragStart = inp.Position
+            startPos = InfoPanel.Position
+        end
+    end)
+    InfoPanel.InputEnded:Connect(function() dragging = false end)
+    UIS.InputChanged:Connect(function(inp)
+        if dragging and (inp.UserInputType == UserInputType.MouseMovement or inp.UserInputType == UserInputType.Touch) then
+            local d = inp.Position - dragStart
+            InfoPanel.Position = UDim2_new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
+            )
+        end
+    end)
+end
+
+-- FPS counter thực tế
+local fpsCount = 0
+local fpsLast = tick()
+task_spawn(function()
+    while InfoPanel.Parent do
+        RunService.RenderStepped:Wait()
+        fpsCount = fpsCount + 1
+        local now = tick()
+        if now - fpsLast >= 1 then
+            S.FPS = fpsCount
+            fpsCount = 0
+            fpsLast = now
+        end
+    end
+end)
+
+-- Cập nhật info panel realtime
+task_spawn(function()
+    while InfoPanel.Parent do
+        task_wait(0.25)
+        pcall(function()
+            UpdateChar()
+            local posStr = "??"
+            if HRP then
+                local p = HRP.Position
+                posStr = string_format("%.0f, %.0f, %.0f", p.X, p.Y, p.Z)
+            end
+            InfoLine1.Text = string_format("👤 %s | FPS: %d", LP.Name, S.FPS)
+            InfoLine2.Text = "📍 Pos: " .. posStr
+            InfoLine3.Text = "🎮 Status: " .. tostring(S.Status)
+            InfoLine4.Text = string_format("🥚 Trộm: %d | Giao: %d | Túi: %s",
+                S.EggsStolen, S.EggsPlaced, S.IsCarrying and "CÓ" or "TRỐNG")
+
+            -- Đổi màu status
+            local st = string_lower(S.Status)
+            if string_find(st, "chết") or string_find(st, "lỗi") or string_find(st, "hụt") then
+                InfoLine3.TextColor3 = Color3_RGB(255, 80, 80)
+            elseif string_find(st, "lấy") or string_find(st, "giao") or string_find(st, "ok") then
+                InfoLine3.TextColor3 = Color3_RGB(80, 255, 120)
+            elseif string_find(st, "đang") or string_find(st, "về") or string_find(st, "đến") then
+                InfoLine3.TextColor3 = Color3_RGB(0, 220, 255)
+            else
+                InfoLine3.TextColor3 = Color3_RGB(255, 200, 40)
+            end
+        end)
+    end
+end)
+
+local function SetStatus(msg)
+    S.Status = tostring(msg)
+end
+
+-- ═══════════════ FLOATING BUTTONS ═══════════════
+local FloatGui = mk("ScreenGui", nil, {
+    Name = "RezzyFloat",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 99995,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+})
+SafeParent(FloatGui)
+
+local function MakeFloatBtn(icon, xPos, yPos, cb, color)
+    local b = mk("TextButton", FloatGui, {
+        Size = UDim2_new(0, 46, 0, 46),
+        Position = UDim2_new(1, xPos, 0, yPos),
+        BackgroundColor3 = Color3_RGB(12, 12, 18),
+        BackgroundTransparency = 0.1,
+        Text = icon,
+        TextSize = 20,
+        Font = Enum.Font.GothamBold,
+        TextColor3 = color or Color3_RGB(0, 220, 255),
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        ZIndex = 99995,
+    })
+    corner(b, 999)
+    stroke(b, color or Color3_RGB(0, 220, 255), 2, 0.3)
+
+    b.MouseButton1Click:Connect(function() pcall(cb) end)
+
+    local dragging, dragStart, startPos
+    b.InputBegan:Connect(function(inp)
+        if inp.UserInputType == UserInputType.MouseButton1 or inp.UserInputType == UserInputType.Touch then
+            dragging = true
+            dragStart = inp.Position
+            startPos = b.Position
+        end
+    end)
+    b.InputEnded:Connect(function() dragging = false end)
+    UIS.InputChanged:Connect(function(inp)
+        if dragging and (inp.UserInputType == UserInputType.MouseMovement or inp.UserInputType == UserInputType.Touch) then
+            local d = inp.Position - dragStart
+            b.Position = UDim2_new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+    return b
+end
+
+-- ═══════════════ MAIN UI ═══════════════
+local MainGui = mk("ScreenGui", nil, {
+    Name = "RezzyMain",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 99980,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+})
+SafeParent(MainGui)
+
+local Pages, TabBtns = {}, {}
+local Window, Content, Pill
+
+local function BuildUI()
+    local vp = Camera.ViewportSize
+    local WW = 400
+    local WH = math_min(540, vp.Y - 80)
+
+    Window = mk("Frame", MainGui, {
+        Size = UDim2_new(0, WW, 0, WH),
+        Position = UDim2_new(0.5, -WW / 2, 0.5, -WH / 2),
+        BackgroundColor3 = Color3_RGB(12, 12, 18),
+        BackgroundTransparency = 0.05,
+        BorderSizePixel = 0,
+        Visible = false,
+        ClipsDescendants = true,
+        ZIndex = 10,
+    })
+    corner(Window, 12)
+    stroke(Window, Color3_RGB(0, 220, 255), 1.5, 0.4)
+
+    local TitleBar = mk("Frame", Window, {
+        Size = UDim2_new(1, 0, 0, 34),
+        BackgroundColor3 = Color3_RGB(20, 20, 28),
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        ZIndex = 11,
+    })
+    mk("TextLabel", TitleBar, {
+        Size = UDim2_new(1, -110, 1, 0),
+        Position = UDim2_new(0, 14, 0, 0),
+        BackgroundTransparency = 1,
+        Text = "🥚 REZZY HUB v1.3",
+        Font = Enum.Font.GothamBlack,
+        TextSize = 13,
+        TextColor3 = Color3_RGB(0, 220, 255),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 12,
+    })
+
+    local MinBtn = mk("TextButton", TitleBar, {
+        Size = UDim2_new(0, 20, 0, 20),
+        Position = UDim2_new(1, -70, 0.5, -10),
+        BackgroundColor3 = Color3_RGB(80, 255, 120),
+        Text = "−",
+        TextColor3 = Color3_RGB(10, 10, 15),
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        ZIndex = 13,
+    })
+    corner(MinBtn, 4)
+
+    local CloseBtn = mk("TextButton", TitleBar, {
+        Size = UDim2_new(0, 20, 0, 20),
+        Position = UDim2_new(1, -26, 0.5, -10),
+        BackgroundColor3 = Color3_RGB(255, 60, 90),
+        Text = "×",
+        TextColor3 = Color3_RGB(255, 255, 255),
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        ZIndex = 13,
+    })
+    corner(CloseBtn, 4)
+
+    local SID_W = 96
+    local Sidebar = mk("Frame", Window, {
+        Size = UDim2_new(0, SID_W, 1, -34),
+        Position = UDim2_new(0, 0, 0, 34),
+        BackgroundColor3 = Color3_RGB(20, 20, 28),
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        ZIndex = 11,
+    })
+
+    Pill = mk("Frame", Sidebar, {
+        Size = UDim2_new(0, 3, 0, 22),
+        Position = UDim2_new(0, 3, 0, 8),
+        BackgroundColor3 = Color3_RGB(0, 220, 255),
+        BorderSizePixel = 0,
+        ZIndex = 13,
+    })
+    corner(Pill, 2)
+
+    Content = mk("ScrollingFrame", Window, {
+        Size = UDim2_new(1, -SID_W - 8, 1, -42),
+        Position = UDim2_new(0, SID_W + 4, 0, 38),
+        BackgroundTransparency = 1,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = Color3_RGB(0, 220, 255),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2_new(0, 0, 0, 0),
+        BorderSizePixel = 0,
+        ZIndex = 11,
+    })
+    local cl = Instance_new("UIListLayout")
+    cl.Padding = UDim_new(0, 6)
+    cl.Parent = Content
+    local cp = Instance_new("UIPadding")
+    cp.PaddingTop = UDim_new(0, 3)
+    cp.PaddingLeft = UDim_new(0, 4)
+    cp.PaddingRight = UDim_new(0, 6)
+    cp.PaddingBottom = UDim_new(0, 6)
+    cp.Parent = Content
+
+    local TABS = {
+        { id = "Farm", icon = "🥚", name = "Farm" },
+        { id = "Fly", icon = "✈️", name = "Fly" },
+        { id = "Misc", icon = "⚙", name = "Misc" },
+        { id = "Info", icon = "📌", name = "Info" },
+    }
+
+    local function mkPage(id)
+        local p = mk("Frame", Content, {
+            Size = UDim2_new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
+            Visible = false,
+            ZIndex = 11,
+        })
+        local l = Instance_new("UIListLayout")
+        l.Padding = UDim_new(0, 6)
+        l.Parent = p
+        Pages[id] = p
+        return p
+    end
+
+    local function switchTab(id)
+        for k, p in pairs(Pages) do p.Visible = (k == id) end
+        for _, tb in ipairs(TabBtns) do
+            if tb.id == id then
+                tb.lbl.TextColor3 = Color3_RGB(0, 220, 255)
+                tb.ico.TextColor3 = Color3_RGB(0, 220, 255)
+            else
+                tb.lbl.TextColor3 = Color3_RGB(140, 140, 170)
+                tb.ico.TextColor3 = Color3_RGB(240, 240, 250)
+            end
+        end
+    end
+
+    for order, tab in ipairs(TABS) do
+        local b = mk("TextButton", Sidebar, {
+            Size = UDim2_new(1, -6, 0, 28),
+            Position = UDim2_new(0, 3, 0, (order - 1) * 30 + 6),
+            BackgroundTransparency = 1,
+            ZIndex = 12,
+            AutoButtonColor = false,
+            Text = "",
+        })
+        corner(b, 5)
+
+        local ico = mk("TextLabel", b, {
+            Size = UDim2_new(0, 18, 1, 0),
+            Position = UDim2_new(0, 6, 0, 0),
+            BackgroundTransparency = 1,
+            Text = tab.icon,
+            TextSize = 12,
+            TextColor3 = Color3_RGB(240, 240, 250),
+            TextXAlignment = Enum.TextXAlignment.Center,
+            ZIndex = 13,
+        })
+        local lbl = mk("TextLabel", b, {
+            Size = UDim2_new(1, -26, 1, 0),
+            Position = UDim2_new(0, 26, 0, 0),
+            BackgroundTransparency = 1,
+            Text = tab.name,
+            TextColor3 = Color3_RGB(140, 140, 170),
+            Font = Enum.Font.GothamBold,
+            TextSize = 9,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 13,
+        })
+
+        table_insert(TabBtns, { id = tab.id, lbl = lbl, ico = ico })
+
+        b.MouseButton1Click:Connect(function()
+            TweenService:Create(Pill, TweenInfo.new(0.3), {
+                Position = UDim2_new(0, 3, 0, (order - 1) * 30 + 8),
+            }):Play()
+            switchTab(tab.id)
+        end)
+
+        mkPage(tab.id)
+    end
+
+    TabBtns[1].lbl.TextColor3 = Color3_RGB(0, 220, 255)
+    TabBtns[1].ico.TextColor3 = Color3_RGB(0, 220, 255)
+    switchTab("Farm")
+
+    -- ════════ TAB FARM ════════
+    local pFarm = Pages.Farm
+
+    UIHeading(pFarm, "🥚 Steal Mode")
+    local modeBtns = mk("Frame", pFarm, {
+        Size = UDim2_new(1, 0, 0, 32),
+        BackgroundTransparency = 1,
+    })
+    local mgl = Instance.new("UIGridLayout")
+    mgl.CellSize = UDim2_new(0, 100, 0, 28)
+    mgl.CellPadding = UDim2_new(0, 4, 0, 4)
+    mgl.FillDirection = Enum.FillDirection.Horizontal
+    mgl.FillDirectionMaxCells = 3
+    mgl.Parent = modeBtns
+
+    for _, mode in ipairs({ "walk", "tele", "instant" }) do
+        local mb = UIButton(modeBtns, string.upper(mode), Color3_RGB(0, 220, 255), function()
+            S.StealMode = mode
+            Notify("info", "Mode", "Đã đổi: " .. mode, 2)
+        end)
+        mb.Size = UDim2_new(0, 100, 0, 28)
+    end
+
+    UISlider(pFarm, "🚶 Farm Speed", 16, 400, S.FarmSpeed, function(v)
+        S.FarmSpeed = v
+        ApplySpeed()
+    end)
+    UISlider(pFarm, "🌀 Tele Speed", 20, 400, S.TeleSpeed, function(v) S.TeleSpeed = v end)
+    UISlider(pFarm, "🎯 Radius", 100, 5000, S.Radius, function(v) S.Radius = v end)
+
+    UIHeading(pFarm, "🎯 Auto Farm Control")
+    local actGrid = mk("Frame", pFarm, {
+        Size = UDim2_new(1, 0, 0, 64),
+        BackgroundTransparency = 1,
+    })
+    local agl = Instance.new("UIGridLayout")
+    agl.CellSize = UDim2_new(0, 155, 0, 28)
+    agl.CellPadding = UDim2_new(0, 4, 0, 4)
+    agl.FillDirection = Enum.FillDirection.Horizontal
+    agl.FillDirectionMaxCells = 2
+    agl.Parent = actGrid
+
+    local startBtn
+    startBtn = UIButton(actGrid, "▶️ START FARM", Color3_RGB(0, 255, 180), function()
+        if S.FarmMode == "off" then
+            S.FarmMode = "on"
+            ScanAll()
+            StartFarmLoop()
+            startBtn.Text = "⏹ STOP FARM"
+            Notify("success", "🚀 Farm ON", "Đang farm...", 2)
+        else
+            S.FarmMode = "off"
+            startBtn.Text = "▶️ START FARM"
+            Notify("warn", "⏹ Farm OFF", "", 2)
+        end
+    end)
+
+    UIButton(actGrid, "🏠 LƯU Ổ", Color3_RGB(255, 200, 40), function()
+        UpdateChar()
+        if HRP then
+            S.SafeNest = HRP.Position
+            S.HasNest = true
+            Notify("success", "🏠 Đã lưu ổ!", math_floor(HRP.Position.X) .. "," .. math_floor(HRP.Position.Z), 3)
+        else
+            Notify("error", "Không có nhân vật!", "", 2)
+        end
+    end)
+
+    UIButton(actGrid, "🌀 TELE STEAL", Color3_RGB(255, 100, 200), function()
+        ActionTeleSteal()
+    end)
+
+    UIButton(actGrid, "🏃 VỀ Ổ", Color3_RGB(80, 255, 120), function()
+        UpdateChar()
+        if HRP and S.SafeNest then
+            SmoothTeleTo(S.SafeNest, 15)
+            Notify("success", "Về ổ OK", "", 2)
+        else
+            Notify("warn", "Chưa lưu ổ!", "Bấm LƯU Ổ trước", 2)
+        end
+    end)
+
+    UIHeading(pFarm, "💡 Hướng dẫn")
+    local guideCard = mk("Frame", pFarm, {
+        Size = UDim2_new(1, 0, 0, 120),
+        BackgroundColor3 = Color3_RGB(26, 26, 36),
+        BackgroundTransparency = 0.25,
+        BorderSizePixel = 0,
+        ZIndex = 11,
+    })
+    corner(guideCard, 6)
+    mk("TextLabel", guideCard, {
+        Size = UDim2_new(1, -16, 1, -12),
+        Position = UDim2_new(0, 8, 0, 6),
+        BackgroundTransparency = 1,
+        Text = "1️⃣ Đến ổ → bấm LƯU Ổ\n" ..
+               "2️⃣ Bấm START FARM\n" ..
+               "3️⃣ Bot tự lấy trứng → tự về ổ giao\n" ..
+               "4️⃣ Lặp lại vô hạn\n\n" ..
+               "💡 Nếu bot đứng im: check Status ở Info Panel giữa màn hình",
+        TextColor3 = Color3_RGB(200, 200, 220),
+        Font = Enum.Font.Code,
+        TextSize = 9,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        TextWrapped = true,
+        ZIndex = 12,
+    })
+
+    -- ════════ TAB FLY ════════
+    local pFly = Pages.Fly
+
+    UIHeading(pFly, "✈️ Fly Control")
+    UIToggle(pFly, "✈️ BẬT FLY", false, function(v)
+        SetFly(v)
+    end)
+    UISlider(pFly, "✈️ Fly Speed", 20, 300, S.FlySpeed, function(v) S.FlySpeed = v end)
+
+    UIHeading(pFly, "🎮 Hướng dẫn Fly")
+    local flyGuide = mk("Frame", pFly, {
+        Size = UDim2_new(1, 0, 0, 100),
+        BackgroundColor3 = Color3_RGB(26, 26, 36),
+        BackgroundTransparency = 0.25,
+        BorderSizePixel = 0,
+        ZIndex = 11,
+    })
+    corner(flyGuide, 6)
+    mk("TextLabel", flyGuide, {
+        Size = UDim2_new(1, -16, 1, -12),
+        Position = UDim2_new(0, 8, 0, 6),
+        BackgroundTransparency = 1,
+        Text = "✈️ PC: WASD + Space/LShift\n" ..
+               "📱 Mobile: Joystick Roblox + Nút nhảy\n" ..
+               "⬆️ Lên: phím SPACE\n" ..
+               "⬇️ Xuống: phím LSHIFT",
+        TextColor3 = Color3_RGB(200, 200, 220),
+        Font = Enum.Font.Code,
+        TextSize = 9,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        TextWrapped = true,
+        ZIndex = 12,
+    })
+
+    -- ════════ TAB MISC ════════
+    local pMisc = Pages.Misc
+
+    UIHeading(pMisc, "⚡ Movement")
+    UISlider(pMisc, "🚶 Walk Speed", 16, 400, S.FarmSpeed, function(v)
+        S.FarmSpeed = v
+        ApplySpeed()
+    end)
+    UISlider(pMisc, "🦘 Jump Power", 50, 300, 100, function(v)
+        UpdateChar()
+        if Hum then pcall(function() Hum.JumpPower = v end) end
+    end)
+
+    UIHeading(pMisc, "👁️ Visual")
+    local espGrid = mk("Frame", pMisc, {
+        Size = UDim2_new(1, 0, 0, 64),
+        BackgroundTransparency = 1,
+    })
+    local egl = Instance.new("UIGridLayout")
+    egl.CellSize = UDim2_new(0, 155, 0, 28)
+    egl.CellPadding = UDim2_new(0, 4, 0, 4)
+    egl.FillDirection = Enum.FillDirection.Horizontal
+    egl.FillDirectionMaxCells = 2
+    egl.Parent = espGrid
+
+    UIToggle(espGrid, "🔦 Fullbright", false, function(v)
+        pcall(function()
+            Lighting.Brightness = v and 3 or 1
+            Lighting.GlobalShadows = not v
+        end)
+    end)
+
+    UIToggle(espGrid, "👻 Anti-AFK", false, function(v)
+        S.AntiAFK = v
+    end)
+
+    UIToggle(espGrid, "📊 Info Panel", true, function(v)
+        S.ShowInfo = v
+        InfoPanel.Visible = v
+    end)
+
+    UIHeading(pMisc, "⚠️ Danger")
+    local dangerGrid = mk("Frame", pMisc, {
+        Size = UDim2_new(1, 0, 0, 32),
+        BackgroundTransparency = 1,
+    })
+    local dgl = Instance.new("UIGridLayout")
+    dgl.CellSize = UDim2_new(0, 155, 0, 28)
+    dgl.CellPadding = UDim2_new(0, 4, 0, 4)
+    dgl.FillDirection = Enum.FillDirection.Horizontal
+    dgl.FillDirectionMaxCells = 2
+    dgl.Parent = dangerGrid
+
+    UIButton(dangerGrid, "🔄 Reset Char", Color3_RGB(255, 100, 100), function()
+        UpdateChar()
+        if Char then Char:BreakJoints() end
+    end)
+
+    UIButton(dangerGrid, "💥 UNLOAD HUB", Color3_RGB(255, 60, 60), function()
+        pcall(function()
+            MainGui:Destroy()
+            NotifyGui:Destroy()
+            FloatGui:Destroy()
+            InfoGui:Destroy()
+        end)
+    end)
+
+    -- ════════ TAB INFO ════════
+    local pInfo = Pages.Info
+
+    UIHeading(pInfo, "📌 Thông tin")
+    local infoCard = mk("Frame", pInfo, {
+        Size = UDim2_new(1, 0, 0, 200),
+        BackgroundColor3 = Color3_RGB(26, 26, 36),
+        BackgroundTransparency = 0.25,
+        BorderSizePixel = 0,
+        ZIndex = 11,
+    })
+    corner(infoCard, 6)
+
+    local infoLbl = mk("TextLabel", infoCard, {
+        Size = UDim2_new(1, -16, 1, -12),
+        Position = UDim2_new(0, 8, 0, 6),
+        BackgroundTransparency = 1,
+        Text = "Loading...",
+        TextColor3 = Color3_RGB(240, 240, 250),
+        Font = Enum.Font.Code,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        TextWrapped = true,
+        ZIndex = 12,
+    })
+
+    task_spawn(function()
+        while infoLbl.Parent do
+            task_wait(1)
+            pcall(function()
+                local nestStr = S.HasNest and (math_floor(S.SafeNest.X) .. "," .. math_floor(S.SafeNest.Z)) or "CHƯA LƯU"
+                infoLbl.Text = string_format(
+                    "🥚 REZZY HUB v1.3\n" ..
+                    "━━━━━━━━━━━━━━━━\n" ..
+                    "👤 Player: %s\n" ..
+                    "🎮 Place: %d\n" ..
+                    "📊 Mode: %s\n" ..
+                    "🚶 Speed: %d\n" ..
+                    "🌀 Tele: %d\n" ..
+                    "🏠 Nest: %s\n" ..
+                    "🥚 Trộm: %d | Giao: %d\n" ..
+                    "📊 FPS: %d\n" ..
+                    "━━━━━━━━━━━━━━━━\n" ..
+                    "RightShift: Toggle Menu\n" ..
+                    "F1: Farm | F2: Tele Steal\n" ..
+                    "F5: Fly | F3: Toggle Info",
+                    LP.Name, game.PlaceId, S.StealMode, S.FarmSpeed, S.TeleSpeed,
+                    nestStr, S.EggsStolen, S.EggsPlaced, S.FPS
+                )
+            end)
+        end
+    end)
+
+    -- Window drag
+    local dragging, dragStart, winStart
+    TitleBar.InputBegan:Connect(function(inp)
+        if inp.UserInputType == UserInputType.MouseButton1 or inp.UserInputType == UserInputType.Touch then
+            dragging = true
+            dragStart = inp.Position
+            winStart = Window.Position
+        end
+    end)
+    TitleBar.InputEnded:Connect(function() dragging = false end)
+    UIS.InputChanged:Connect(function(inp)
+        if dragging and (inp.UserInputType == UserInputType.MouseMovement or inp.UserInputType == UserInputType.Touch) then
+            local delta = inp.Position - dragStart
+            Window.Position = UDim2_new(
+                winStart.X.Scale, winStart.X.Offset + delta.X,
+                winStart.Y.Scale, winStart.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    function ToggleMenu()
+        if Window.Visible then
+            Window.Visible = false
+            S.MenuOpen = false
+        else
+            Window.Visible = true
+            S.MenuOpen = true
+        end
+    end
+
+    CloseBtn.MouseButton1Click:Connect(function()
+        Window.Visible = false
+        S.MenuOpen = false
+    end)
+
+    MinBtn.MouseButton1Click:Connect(function()
+        Window.Visible = false
+        S.MenuOpen = false
+    end)
+
+    print("✅ Main UI built")
+end
+
+BuildUI()
+
+-- ═══════════════ FLOATING BUTTONS ═══════════════
+MakeFloatBtn("⚡", -54, 15, function()
+    if ToggleMenu then ToggleMenu() end
+end, Color3_RGB(0, 220, 255))
+
+MakeFloatBtn("🥚", -54, 68, function()
+    if S.FarmMode == "off" then
+        S.FarmMode = "on"
+        ScanAll()
+        StartFarmLoop()
+        Notify("success", "🚀 Farm ON", "Bắt đầu farm", 2)
+    else
+        S.FarmMode = "off"
+        Notify("warn", "⏹ Farm OFF", "", 2)
+    end
+end, Color3_RGB(0, 255, 180))
+
+MakeFloatBtn("🏠", -54, 121, function()
+    UpdateChar()
+    if HRP then
+        S.SafeNest = HRP.Position
+        S.HasNest = true
+        Notify("success", "🏠 Đã lưu ổ!", "", 2)
+    end
+end, Color3_RGB(255, 200, 40))
+
+MakeFloatBtn("✈️", -54, 174, function()
+    SetFly(not S.FlyMode)
+end, Color3_RGB(255, 100, 200))
+
+MakeFloatBtn("📊", -54, 227, function()
+    S.ShowInfo = not S.ShowInfo
+    InfoPanel.Visible = S.ShowInfo
+    Notify("info", "Info Panel", S.ShowInfo and "ON" or "OFF", 2)
+end, Color3_RGB(140, 200, 255))
+
+print("✅ Floating buttons added")
+
+-- ═══════════════ CORE FUNCTIONS ═══════════════
+
+local STEAL_KW = { "steal", "grab", "pick", "cướp", "cắp", "trộm", "nhặt", "lấy", "snatch", "trứng", "egg" }
+local PLACE_KW = { "place", "submit", "deliver", "đặt", "nộp", "ổ", "nest" }
+
+local function hasKW(s, list)
+    if not s then return false end
+    s = string_lower(s)
+    for i = 1, #list do
+        if string_find(s, list[i], 1, true) then return true end
+    end
+    return false
+end
+
+local function GetPromptPos(p)
+    local parent = p.Parent
+    if not parent then return nil end
+    if parent:IsA("BasePart") then return parent.Position end
+    if parent:IsA("Model") and parent.PrimaryPart then return parent.PrimaryPart.Position end
+    for _, c in ipairs(parent:GetChildren()) do
+        if c:IsA("BasePart") then return c.Position end
+    end
+    return nil
+end
+
+function ScanAll()
+    S.Cache = { Steal = {}, Place = {} }
+    local count = 0
+    pcall(function()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            count = count + 1
+            if count % 2000 == 0 then task_wait() end
+            if obj:IsA("ProximityPrompt") and obj.Enabled then
+                local text = tostring(obj.ActionText or "") .. " " .. tostring(obj.ObjectText or "") .. " " .. obj.Name
+                local pos = GetPromptPos(obj)
+                if pos then
+                    if hasKW(text, PLACE_KW) and not hasKW(text, STEAL_KW) then
+                        table_insert(S.Cache.Place, { p = obj, pos = pos })
+                    elseif hasKW(text, STEAL_KW) then
+                        table_insert(S.Cache.Steal, { p = obj, pos = pos })
+                    end
+                end
+            end
+        end
+    end)
+    print("[SCAN] Steal: " .. #S.Cache.Steal .. " | Place: " .. #S.Cache.Place)
+end
+
+S.Cache = { Steal = {}, Place = {} }
+
+-- Detect đang mang trứng (multi-source)
+local function DetectCarrying()
+    UpdateChar()
+    if not Char then return false end
+
+    -- 1) Con của nhân vật
+    for _, c in ipairs(Char:GetChildren()) do
+        local n = string_lower(c.Name)
+        if string_find(n, "egg", 1, true) or string_find(n, "trứng", 1, true) then
+            if not string_find(n, "bat", 1, true) and not string_find(n, "gậy", 1, true) then
+                if c:IsA("BasePart") or c:IsA("Model") or c:IsA("MeshPart") or c:IsA("Tool") or c:IsA("Accessory") then
+                    return true
+                end
+            end
+        end
+    end
+
+    -- 2) Backpack
+    local bp = LP:FindFirstChild("Backpack")
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            local n = string_lower(t.Name)
+            if string_find(n, "egg", 1, true) or string_find(n, "trứng", 1, true) then
+                return true
+            end
+        end
+    end
+
+    -- 3) PlayerGui — tìm text UI "thả trứng"
+    local pg = LP:FindFirstChild("PlayerGui")
+    if pg then
+        for _, g in ipairs(pg:GetDescendants()) do
+            if (g:IsA("TextButton") or g:IsA("TextLabel")) and g.Visible then
+                local t = string_lower(tostring(g.Text))
+                if string_find(t, "thả trứng", 1, true) or string_find(t, "drop egg", 1, true)
+                    or string_find(t, "đặt trứng", 1, true) or string_find(t, "deliver", 1, true)
+                    or string_find(t, "giao trứng", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+
+    -- 4) Character children attributes
+    for _, c in ipairs(Char:GetChildren()) do
+        if c:IsA("Tool") then return true end
+    end
+
+    return false
+end
+
+-- WalkTo (giữ nguyên)
+function WalkTo(targetPos, timeout)
+    UpdateChar()
+    if not Hum or not HRP then return false end
+    pcall(function() Hum:MoveTo(targetPos) end)
+    local start = tick()
+    timeout = timeout or 15
+    local lastJump = tick()
+    while tick() - start < timeout do
+        UpdateChar()
+        if not HRP or not Hum then return false end
+        if (HRP.Position - targetPos).Magnitude < 6 then return true end
+        if tick() - lastJump > 2 then
+            pcall(function() Hum.Jump = true end)
+            pcall(function() Hum:MoveTo(targetPos) end)
+            lastJump = tick()
+        end
+        task_wait(0.3)
+    end
+    return false
+end
+
+-- ========= FIX #2: SMOOTH TELEPORT =========
+-- Không set vị trí từng bước cứng ngắc → dùng body velocity
+function SmoothTeleTo(targetPos, timeout)
+    UpdateChar()
+    if not HRP or not Hum then return false end
+
+    local dist = (HRP.Position - targetPos).Magnitude
+    if dist < 3 then return true end
+
+    local spd = S.TeleSpeed or 80
+    timeout = timeout or math_min(dist / spd + 5, 20)
+
+    -- Bật noclip tạm
+    local parts = {}
+    for _, p in ipairs(Char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            parts[p] = p.CanCollide
+            p.CanCollide = false
+        end
+    end
+
+    local bv = Instance_new("BodyVelocity")
+    bv.MaxForce = Vector3_new(1e5, 1e5, 1e5)
+    bv.P = 1e4
+    bv.Parent = HRP
+
+    local start = tick()
+    local ok = false
+    while tick() - start < timeout do
+        UpdateChar()
+        if not HRP then break end
+        local d = targetPos - HRP.Position
+        if d.Magnitude < 3 then
+            ok = true
+            break
+        end
+        local dir = d.Unit
+        local desired = dir * math_min(spd, d.Magnitude * 8)
+        bv.Velocity = desired
+        HRP.CFrame = CFrame_new(HRP.Position, HRP.Position + Vector3_new(dir.X, 0, dir.Z))
+        RunService.RenderStepped:Wait()
+    end
+
+    pcall(function() bv:Destroy() end)
+
+    -- Khôi phục collision
+    for p, canCol in pairs(parts) do
+        pcall(function()
+            if p.Parent then p.CanCollide = canCol end
+        end)
+    end
+
+    return ok
+end
+
+-- Alias cũ để các chỗ khác vẫn hoạt động
+function TeleTo(targetPos, timeout)
+    return SmoothTeleTo(targetPos, timeout)
+end
+
+-- Try steal — fix prompt hold
+function TrySteal(prompt, pos)
+    if not prompt or not prompt.Parent or not prompt.Enabled then return false end
+    UpdateChar()
+    if not HRP then return false end
+
+    if (HRP.Position - pos).Magnitude > 12 then
+        if S.StealMode == "tele" or S.StealMode == "instant" then
+            SmoothTeleTo(pos, 8)
+        else
+            WalkTo(pos, 8)
+        end
+    end
+
+    task_wait(0.15)
+
+    local ok = pcall(function() prompt:InputHoldBegin() end)
+    if ok then
+        local hold = math_clamp(prompt.HoldDuration or 0.5, 0.1, 3)
+        task_wait(hold)
+        pcall(function() prompt:InputHoldEnd() end)
+        task_wait(0.25)
+    end
+    return true
+end
+
+-- Try place
+function TryPlace(nestPos)
+    UpdateChar()
+    if not HRP then return false end
+
+    local best, bestDist = nil, 15
+    for _, d in ipairs(S.Cache.Place) do
+        if d.p and d.p.Parent then
+            local dist = (nestPos - d.pos).Magnitude
+            if dist < bestDist then
+                bestDist = dist
+                best = d
+            end
+        end
+    end
+
+    if best then
+        SmoothTeleTo(best.pos, 5)
+        task_wait(0.2)
+        local ok = pcall(function() best.p:InputHoldBegin() end)
+        if ok then
+            task_wait(math_clamp(best.p.HoldDuration or 0.5, 0.1, 2))
+            pcall(function() best.p:InputHoldEnd() end)
+            task_wait(0.35)
+        end
+        return true
+    end
+    return false
+end
+
+-- Action tele steal
+function ActionTeleSteal()
+    UpdateChar()
+    if not HRP then
+        Notify("error", "Chưa có nhân vật", "", 2)
+        return
+    end
+    if #S.Cache.Steal == 0 then ScanAll() end
+    if #S.Cache.Steal == 0 then
+        Notify("warn", "Không tìm thấy trứng", "", 2)
+        return
+    end
+    local nearest, minDist = nil, math_huge
+    for _, d in ipairs(S.Cache.Steal) do
+        if d.p and d.p.Parent then
+            local dist = (HRP.Position - d.pos).Magnitude
+            if dist < minDist then
+                minDist = dist
+                nearest = d
+            end
+        end
+    end
+    if not nearest then
+        Notify("warn", "Không có trứng", "", 2)
+        return
+    end
+    SetStatus("🌀 Đang đến trứng...")
+    SmoothTeleTo(nearest.pos, 10)
+    task_wait(0.2)
+    TrySteal(nearest.p, nearest.pos)
+    S.EggsStolen = S.EggsStolen + 1
+    SetStatus("✅ Đã lấy trứng")
+    Notify("success", "🥚 Lấy OK!", "#" .. S.EggsStolen, 2)
+end
+
+function ApplySpeed()
+    UpdateChar()
+    if Hum then
+        pcall(function() Hum.WalkSpeed = S.FarmSpeed end)
+    end
+end
+
+-- Speed enforcer
+task_spawn(function()
+    while true do
+        task_wait(0.5)
+        pcall(function()
+            UpdateChar()
+            if Hum and Hum.Parent and Hum.Health > 0 then
+                if math_abs(Hum.WalkSpeed - S.FarmSpeed) > 2 then
+                    Hum.WalkSpeed = S.FarmSpeed
+                end
+            end
+        end)
+    end
+end)
+
+-- ═══════════════ FIX #3: FLY ENGINE MƯỢT ═══════════════
+local flyConn = nil
+local flyVelocity = Vector3_new(0, 0, 0)
+local flyY = 0
+local flyBV = nil
+local flyBG = nil
+
+local function CreateFlyBodies()
+    if not HRP then return end
+    if flyBV and flyBV.Parent then return end
+    flyBV = Instance_new("BodyVelocity")
+    flyBV.MaxForce = Vector3_new(1e6, 1e6, 1e6)
+    flyBV.P = 12500
+    flyBV.Velocity = Vector3_new(0, 0, 0)
+    flyBV.Parent = HRP
+
+    flyBG = Instance_new("BodyGyro")
+    flyBG.MaxTorque = Vector3_new(1e6, 1e6, 1e6)
+    flyBG.P = 10000
+    flyBG.D = 500
+    flyBG.CFrame = HRP.CFrame
+    flyBG.Parent = HRP
+end
+
+local function DestroyFlyBodies()
+    if flyBV then pcall(function() flyBV:Destroy() end); flyBV = nil end
+    if flyBG then pcall(function() flyBG:Destroy() end); flyBG = nil end
+end
+
+function SetFly(on)
+    S.FlyMode = on
+    if on then
+        UpdateChar()
+        if HRP then flyY = HRP.Position.Y end
+        flyVelocity = Vector3_new(0, 0, 0)
+        CreateFlyBodies()
+        if Hum then
+            pcall(function() Hum.PlatformStand = true end)
+        end
+        if not flyConn then
+            flyConn = RunService.RenderStepped:Connect(function(dt)
+                if not S.FlyMode then return end
+                UpdateChar()
+                if not HRP or not Hum then return end
+                if Hum.Health <= 0 then
+                    SetFly(false)
+                    return
+                end
+                dt = math_min(dt, 0.1)
+
+                local camCF = Camera.CFrame
+                local camLook = camCF.LookVector
+                local camRight = camCF.RightVector
+
+                -- Làm phẳng look/right
+                local flatLook = Vector3_new(camLook.X, 0, camLook.Z)
+                if flatLook.Magnitude < 0.01 then flatLook = Vector3_new(0, 0, 1) end
+                flatLook = flatLook.Unit
+
+                local flatRight = Vector3_new(camRight.X, 0, camRight.Z)
+                if flatRight.Magnitude < 0.01 then flatRight = Vector3_new(1, 0, 0) end
+                flatRight = flatRight.Unit
+
+                -- Input từ Humanoid.MoveDirection (joystick Roblox)
+                local md = Hum.MoveDirection
+                local wish = Vector3_new(0, 0, 0)
+                if md.Magnitude > 0.05 then
+                    wish = (flatLook * md.Z + flatRight * md.X)
+                end
+
+                -- Lên/xuống
+                local upInput = 0
+                if S.FlyUp then upInput = upInput + 1 end
+                if S.FlyDown then upInput = upInput - 1 end
+
+                -- Target velocity
+                local targetVel = wish.Unit * S.FlySpeed
+                if wish.Magnitude < 0.05 then
+                    targetVel = Vector3_new(0, 0, 0)
+                end
+                targetVel = targetVel + Vector3_new(0, upInput * S.FlySpeed, 0)
+
+                -- Lerp velocity với dt (mượt)
+                local lerpRate = 12 * dt
+                flyVelocity = flyVelocity:Lerp(targetVel, math_min(lerpRate, 1))
+
+                -- Áp dụng lên BodyVelocity
+                if flyBV and flyBV.Parent then
+                    flyBV.Velocity = flyVelocity
+                end
+
+                -- BodyGyro luôn hướng theo camera
+                if flyBG and flyBG.Parent then
+                    flyBG.CFrame = camCF
+                end
+            end)
+        end
+        Notify("success", "✈️ Fly ON", "Dùng joystick + Space/LShift", 3)
+        SetStatus("✈️ Đang bay")
+    else
+        if flyConn then
+            flyConn:Disconnect()
+            flyConn = nil
+        end
+        DestroyFlyBodies()
+        pcall(function()
+            if Hum then Hum.PlatformStand = false end
+        end)
+        flyVelocity = Vector3_new(0, 0, 0)
+        Notify("warn", "✈️ Fly OFF", "", 2)
+        SetStatus("🟢 Sẵn sàng")
+    end
+end
+
+-- ═══════════════ AUTO FARM LOOP (FIX #4) ═══════════════
+local FarmRunning = false
+
+function StartFarmLoop()
+    if FarmRunning then return end
+    FarmRunning = true
+    SetStatus("🚀 Farm bắt đầu")
+
+    task_spawn(function()
+        local lastNotifyNoNest = 0
+        while S.FarmMode == "on" do
+            pcall(function()
+                UpdateChar()
+                if not HRP or not Hum or Hum.Health <= 0 then
+                    SetStatus("💀 Chết...")
+                    task_wait(2)
+                    return
+                end
+
+                S.IsCarrying = DetectCarrying()
+
+                if S.IsCarrying then
+                    -- ĐANG MANG TRỨNG → VỀ Ổ GIAO
+                    if not S.HasNest then
+                        SetStatus("⚠️ Chưa lưu ổ!")
+                        if tick() - lastNotifyNoNest > 15 then
+                            Notify("warn", "Chưa lưu ổ!", "Đến ổ → bấm LƯU Ổ", 4)
+                            lastNotifyNoNest = tick()
+                        end
+                        task_wait(2)
+                        return
+                    end
+
+                    SetStatus("🏠 Về ổ giao trứng...")
+                    local dist = (HRP.Position - S.SafeNest).Magnitude
+                    if dist > 15 then
+                        SmoothTeleTo(S.SafeNest, 15)
+                    elseif dist > 5 then
+                        WalkTo(S.SafeNest, 5)
+                    end
+                    task_wait(0.3)
+
+                    if TryPlace(S.SafeNest) then
+                        task_wait(0.6)
+                    end
+
+                    task_wait(0.5)
+                    S.IsCarrying = DetectCarrying()
+                    if not S.IsCarrying then
+                        S.EggsPlaced = S.EggsPlaced + 1
+                        SetStatus("✅ Đã giao #" .. S.EggsPlaced)
+                        Notify("success", "🏠 Giao OK!", "Tổng: " .. S.EggsPlaced, 2)
+                    else
+                        SetStatus("⚠️ Giao hụt, thử lại...")
+                        task_wait(1)
+                    end
+
+                else
+                    -- KHÔNG MANG TRỨNG → ĐI LẤY
+                    if tick() - S.LastScan > 4 then
+                        ScanAll()
+                        S.LastScan = tick()
+                    end
+
+                    if #S.Cache.Steal == 0 then
+                        SetStatus("🔍 Đang quét trứng...")
+                        task_wait(2)
+                        return
+                    end
+
+                    local nearest, minDist = nil, math_huge
+                    for _, d in ipairs(S.Cache.Steal) do
+                        if d.p and d.p.Parent and d.pos.Y > -50 then
+                            local dist = (HRP.Position - d.pos).Magnitude
+                            if dist < S.Radius and dist < minDist then
+                                minDist = dist
+                                nearest = d
+                            end
+                        end
+                    end
+
+                    if nearest then
+                        SetStatus("🚶 Đến trứng (" .. math_floor(minDist) .. "m)")
+                        if S.StealMode == "tele" or S.StealMode == "instant" then
+                            SmoothTeleTo(nearest.pos, 15)
+                        else
+                            WalkTo(nearest.pos, 20)
+                        end
+                        task_wait(0.3)
+                        SetStatus("🎯 Đang lấy trứng...")
+                        TrySteal(nearest.p, nearest.pos)
+                        task_wait(0.5)
+
+                        S.IsCarrying = DetectCarrying()
+                        if S.IsCarrying then
+                            S.EggsStolen = S.EggsStolen + 1
+                            SetStatus("✅ Lấy được #" .. S.EggsStolen)
+                            Notify("success", "🥚 Lấy OK!", "#" .. S.EggsStolen, 2)
+                        else
+                            SetStatus("⚠️ Lấy hụt, tiếp tục...")
+                        end
+                    else
+                        SetStatus("🔍 Không thấy trứng trong bán kính")
+                        task_wait(2)
+                    end
+                end
+            end)
+            task_wait(0.3)
+        end
+        FarmRunning = false
+        SetStatus("🟢 Sẵn sàng")
+    end)
+end
+
+-- ═══════════════ ANTI-AFK ═══════════════
+task_spawn(function()
+    while true do
+        task_wait(60)
+        if S.AntiAFK then
+            pcall(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2_new(0, 0))
+            end)
+        end
+    end
+end)
+
+-- ═══════════════ HOTKEYS ═══════════════
+UIS.InputBegan:Connect(function(inp, gp)
+    if gp then return end
+    if UIS:GetFocusedTextBox() then return end
+
+    if inp.KeyCode == KeyCode.RightShift then
+        if ToggleMenu then ToggleMenu() end
+    elseif inp.KeyCode == KeyCode.F1 then
+        if S.FarmMode == "off" then
+            S.FarmMode = "on"
+            ScanAll()
+            StartFarmLoop()
+            Notify("success", "🚀 Farm ON", "F1 toggle", 2)
+        else
+            S.FarmMode = "off"
+            Notify("warn", "⏹ Farm OFF", "", 2)
+        end
+    elseif inp.KeyCode == KeyCode.F2 then
+        ActionTeleSteal()
+    elseif inp.KeyCode == KeyCode.F3 then
+        S.ShowInfo = not S.ShowInfo
+        InfoPanel.Visible = S.ShowInfo
+    elseif inp.KeyCode == KeyCode.F5 then
+        SetFly(not S.FlyMode)
+    elseif inp.KeyCode == KeyCode.Space then
+        if S.FlyMode then S.FlyUp = true end
+    elseif inp.KeyCode == KeyCode.LeftShift then
+        if S.FlyMode then S.FlyDown = true end
+    end
+end)
+
+UIS.InputEnded:Connect(function(inp, gp)
+    if gp then return end
+    if inp.KeyCode == KeyCode.Space then S.FlyUp = false end
+    if inp.KeyCode == KeyCode.LeftShift then S.FlyDown = false end
+end)
+
+-- ═══════════════ BOOT NOTIFY ═══════════════
+task_delay(0.5, function()
+    Notify("success", "🥚 REZZY HUB v1.3", "Info Panel ở GIỮA màn hình! Nút ⚡ để mở menu", 6)
+end)
+
+print("═══════════════════════════════════════")
+print("✅ REZZY HUB v1.3 ĐÃ LOAD!")
+print("⌨️  RightShift — Menu")
+print("⌨️  F1 — Farm | F2 — Tele Steal")
+print("⌨️  F3 — Info Panel | F5 — Fly")
+print("🔵 Info Panel hiển thị CHÍNH GIỮA màn hình")
+print("═══════════════════════════════════════")
