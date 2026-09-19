@@ -1,14 +1,19 @@
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ BLACKZ VIP FLY v7.0 — UNIFIED DEFENSE EDITION                                 ║
--- ║ 🛡️ Anti-Kick Engine v3.0 (35 layers) tích hợp sẵn                            ║
+-- ║ BLACKZ VIP FLY v8.0 — FULL FIXED EDITION                                      ║
+-- ║ 🛡️ Anti-Kick Engine v4.0 — 35 tầng bảo vệ                                    ║
+-- ║ 🔧 Fix: Chống chồng GUI + Key UI tự tắt + Cleanup toàn diện                  ║
 -- ║ ✈️ Multi Fly Modes | 👻 Invisible | 🎯 Aimbot | 🔄 Spinbot                    ║
 -- ║ Keys: blackzfree (FREE) | blackzmid (VIP) | blackzpro (ULTRA)                 ║
--- ║ 1 SCRIPT DUY NHẤT — Không cần chạy kèm anti-kick riêng                        ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 01: SERVICES CACHE                                                     ║
+-- ║ MODULE 00: CLEANUP TOÀN DIỆN — FIX BUG CHỒNG GUI                              ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
+print("═══════════════════════════════════════════════")
+print("⚡ BLACKZ VIP FLY v8.0 — FULL FIXED")
+print("═══════════════════════════════════════════════")
+print("[BOOT] Bắt đầu cleanup GUI cũ...")
+
 local Players              = game:GetService("Players")
 local RunService           = game:GetService("RunService")
 local Workspace            = game:GetService("Workspace")
@@ -30,8 +35,66 @@ local ScriptContext        = game:GetService("ScriptContext")
 local LP = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
+-- ═══ CLEANUP FUNCTION ═══
+local function CleanupOldGuis()
+    local allParents = { CoreGui }
+    
+    pcall(function()
+        if LP:FindFirstChild("PlayerGui") then
+            table.insert(allParents, LP.PlayerGui)
+        end
+    end)
+    
+    pcall(function()
+        if gethui then
+            local ok, h = pcall(gethui)
+            if ok and h then table.insert(allParents, h) end
+        end
+    end)
+    
+    local cleanedCount = 0
+    for _, parent in ipairs(allParents) do
+        if parent then
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("ScreenGui") then
+                    local n = child.Name
+                    if string.find(n, "BlackZ") or string.find(n, "System") 
+                        or string.find(n, "Rezzy") or string.find(n, "Key") then
+                        pcall(function()
+                            child.Enabled = false
+                            child:Destroy()
+                        end)
+                        cleanedCount = cleanedCount + 1
+                        print("[CLEANUP] Đã xóa:", n)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Xóa ESP folder cũ
+    pcall(function()
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            if obj.Name == "BlackZESP" or obj.Name == "SystemESP" or obj.Name == "RezzyESP" then
+                obj:Destroy()
+                cleanedCount = cleanedCount + 1
+            end
+        end
+    end)
+    
+    -- Reset global flags
+    _G.BlackZ_Built = false
+    _G.BlackZ_Alive = true
+    _G.BlackZ_Version = "v8.0"
+    
+    print("[CLEANUP] Đã xóa " .. cleanedCount .. " GUI cũ")
+end
+
+CleanupOldGuis()
+print("[BOOT] Cleanup xong!")
+
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 02: LOCAL CACHE                                                        ║
+-- ║ MODULE 01: LOCAL CACHE                                                        ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local pcall = pcall
 local xpcall = xpcall
@@ -121,7 +184,7 @@ local setclipboard         = setclipboard
 local setfpscap            = setfpscap
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 03: HIDDEN PARENT                                                      ║
+-- ║ MODULE 02: HIDDEN PARENT                                                      ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local HIDDEN_PARENT = CoreGui
 pcall(function()
@@ -143,7 +206,7 @@ local function SafeParent(gui)
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 04: EXECUTOR DETECTION                                                 ║
+-- ║ MODULE 03: EXECUTOR DETECTION                                                 ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local ExecutorInfo = {
     name = "Unknown",
@@ -164,9 +227,10 @@ pcall(function()
     end
 end)
 
+print("[INFO] Executor:", ExecutorInfo.name)
+
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 05: SILENT ANTI-KICK ENGINE (Tích hợp — 35 tầng)                      ║
--- ║ Chạy ngầm, không hiện UI, không cần bật tắt                                  ║
+-- ║ MODULE 04: SILENT ANTI-KICK ENGINE v4.0 (35 tầng)                             ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 
 local DefenseState = {
@@ -193,7 +257,7 @@ local SUSPICIOUS_REMOTE_KEYWORDS = {
     "anticheat", "anti_cheat", "security", "validate", "check",
     "report", "log", "violation", "suspicious", "iac", "shield",
     "guard", "protect", "monitor", "telemetry", "watchdog",
-    "memer", "sentry", "sentinel", "punish",
+    "memer", "sentry", "sentinel",
 }
 
 local SUSPICIOUS_SCRIPT_KEYWORDS = {
@@ -213,7 +277,6 @@ local function ContainsKeyword(str, keywordList)
     return false
 end
 
--- Silent log (không dùng warn để tránh bị LogService bắt)
 local function DLog(msg)
     pcall(function()
         print("[BLACKZ-DEFENSE]", msg)
@@ -342,23 +405,27 @@ end
 local function InstallDebugHooks()
     if not hookfunction then return false end
     pcall(function()
-        local oldInfo = hookfunction(debug.info, function(...)
-            local r = oldInfo(...)
-            if type(r) == "string" then
-                r = string_gsub(r, "BlackZ", "CoreScript")
-            end
-            return r
-        end)
-        DefenseHooks.debuginfo = oldInfo
+        if debug and debug.info then
+            local oldInfo = hookfunction(debug.info, function(...)
+                local r = oldInfo(...)
+                if type(r) == "string" then
+                    r = string_gsub(r, "BlackZ", "CoreScript")
+                end
+                return r
+            end)
+            DefenseHooks.debuginfo = oldInfo
+        end
 
-        local oldTrace = hookfunction(debug.traceback, function(...)
-            local r = oldTrace(...)
-            if type(r) == "string" then
-                r = string_gsub(r, "BlackZ", "CoreScript")
-            end
-            return r
-        end)
-        DefenseHooks.debugtrace = oldTrace
+        if debug and debug.traceback then
+            local oldTrace = hookfunction(debug.traceback, function(...)
+                local r = oldTrace(...)
+                if type(r) == "string" then
+                    r = string_gsub(r, "BlackZ", "CoreScript")
+                end
+                return r
+            end)
+            DefenseHooks.debugtrace = oldTrace
+        end
     end)
     return true
 end
@@ -366,6 +433,7 @@ end
 -- ─── Tầng 7: Protect CoreGui ───
 local function ProtectCoreGui()
     local ok = pcall(function()
+        if not hookfunction then return end
         local original = hookfunction(GuiService.SetCoreGuiEnabled, function(self, guiType, enabled)
             if checkcaller and not checkcaller() then
                 return nil
@@ -515,7 +583,7 @@ end
 local function StartDefenseWatchdog()
     task_spawn(function()
         while DefenseState.ACTIVE do
-            task_wait(0.5)
+            task_wait(1)
             DefenseState.WATCHDOG_TICKS = DefenseState.WATCHDOG_TICKS + 1
             pcall(function()
                 local mt = getrawmetatable(game)
@@ -535,10 +603,9 @@ local function StartDefenseWatchdog()
                     InstallDirectKickHook()
                     DefenseState.HOOKS_RESTORED = DefenseState.HOOKS_RESTORED + 1
                 end
-                if DefenseState.WATCHDOG_TICKS % 20 == 0 then
+                if DefenseState.WATCHDOG_TICKS % 30 == 0 then
                     PurgeSuspiciousRemotes()
                     PurgeAnticheatScripts()
-                    MemoryScanAndPurge()
                 end
             end)
         end
@@ -579,36 +646,38 @@ local function SpoofFingerprint()
     return true
 end
 
--- ─── Khởi động toàn bộ Defense Engine ───
+-- ─── Khởi động Defense Engine ───
 local function StartDefenseEngine()
-    InstallNamecallHook()
-    InstallIndexHook()
-    InstallNewIndexHook()
-    InstallDirectKickHook()
-    InstallDirectTeleportHook()
-    InstallDebugHooks()
-    ProtectCoreGui()
-    ProtectScriptContext()
-    PurgeSuspiciousRemotes()
-    PurgeAnticheatScripts()
-    MemoryScanAndPurge()
-    ProtectNetworkOwnership()
-    ProtectHumanoidDied()
-    StartDefenseWatchdog()
-    StartAutoReconnect()
-    SpoofFingerprint()
-    DLog("═══ DEFENSE ENGINE KHỞI ĐỘNG — TẤT CẢ TẦNG ĐÃ HOẠT ĐỘNG ═══")
+    pcall(function() InstallNamecallHook() end)
+    pcall(function() InstallIndexHook() end)
+    pcall(function() InstallNewIndexHook() end)
+    pcall(function() InstallDirectKickHook() end)
+    pcall(function() InstallDirectTeleportHook() end)
+    pcall(function() InstallDebugHooks() end)
+    pcall(function() ProtectCoreGui() end)
+    pcall(function() ProtectScriptContext() end)
+    pcall(function() PurgeSuspiciousRemotes() end)
+    pcall(function() PurgeAnticheatScripts() end)
+    pcall(function() MemoryScanAndPurge() end)
+    pcall(function() ProtectNetworkOwnership() end)
+    pcall(function() ProtectHumanoidDied() end)
+    pcall(function() StartDefenseWatchdog() end)
+    pcall(function() StartAutoReconnect() end)
+    pcall(function() SpoofFingerprint() end)
+    DLog("═══ DEFENSE ENGINE v4.0 KHỞI ĐỘNG ═══")
 end
 
--- Chạy engine ngầm ngay lập tức
+-- Chạy defense ngầm
 task_spawn(function()
     xpcall(StartDefenseEngine, function(e)
         DLog("Boot error: " .. tostring(e))
     end)
 end)
 
+print("[DEFENSE] Engine đã khởi động ngầm")
+
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 06: KEY SYSTEM                                                         ║
+-- ║ MODULE 05: KEY SYSTEM                                                         ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local TierConfig = {
     FREE = {
@@ -658,7 +727,7 @@ local function GetTierConfig()
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 07: THEME                                                              ║
+-- ║ MODULE 06: THEME                                                              ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local Theme = {
     accent = Color3_RGB(0, 220, 255),
@@ -690,7 +759,7 @@ local ThemePresets = {
 }
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 08: STATE + FORWARD DECLARATIONS                                       ║
+-- ║ MODULE 07: STATE + FORWARD DECLARATIONS                                       ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local State = {
     char = nil, hrp = nil, hum = nil,
@@ -721,6 +790,7 @@ local State = {
     lastClickTP = 0,
 }
 
+-- Forward declarations
 local VJoyGui, VJoyBase, VJoyThumb, VJoyTouch = nil, nil, nil, nil
 local HJoyGui, HJoyBase, HJoyThumb, HJoyTouch = nil, nil, nil, nil
 local FloatGui = nil
@@ -739,7 +809,7 @@ local Notify, SafeNotify
 local MakeFloatBtn
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 09: UI UTILS                                                           ║
+-- ║ MODULE 08: UI UTILS                                                           ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local function mk(cls, parent, props)
     local i = Instance_new(cls)
@@ -821,10 +891,10 @@ local function tween(obj, time, props)
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 10: NOTIFICATION SYSTEM                                                ║
+-- ║ MODULE 09: NOTIFICATION SYSTEM                                                ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 NotifyGui = mk("ScreenGui", nil, {
-    Name = "SystemGui_" .. tostring(math_random(100000, 999999)),
+    Name = "BlackZNotify_" .. tostring(math_random(100000, 999999)),
     ResetOnSpawn = false, IgnoreGuiInset = true,
     DisplayOrder = 99999, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 })
@@ -926,7 +996,7 @@ SafeNotify = function(title, text, dur)
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 11: CHARACTER                                                          ║
+-- ║ MODULE 10: CHARACTER                                                          ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local function UpdateChar()
     local c = LP.Character
@@ -985,7 +1055,7 @@ LP.CharacterAdded:Connect(function(newChar)
 end)
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 12: INVISIBLE ENGINE                                                   ║
+-- ║ MODULE 11: INVISIBLE ENGINE (100% Real)                                       ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local invisibleConn = nil
 
@@ -1067,9 +1137,9 @@ DisableInvisibleLoop = function()
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 13: ESP SYSTEM                                                         ║
+-- ║ MODULE 12: ESP SYSTEM                                                         ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
-ESPContainer = mk("Folder", nil, { Name = "SystemESP_" .. tostring(math_random(100000, 999999)) })
+ESPContainer = mk("Folder", nil, { Name = "BlackZESP_" .. tostring(math_random(100000, 999999)) })
 SafeParent(ESPContainer)
 
 ClearESP = function()
@@ -1083,17 +1153,19 @@ CreateESPForPlayer = function(player)
     if player == LP then return end
     if not player.Character then return end
     if State.espObjects[player] then return end
+
     local head = player.Character:FindFirstChild("Head")
     if not head then return end
 
     if State.esp then
-        State.espObjects[player] = mk("Highlight", ESPContainer, {
+        local hl = mk("Highlight", ESPContainer, {
             Adornee = player.Character,
             FillColor = Color3_RGB(255, 100, 100),
             FillTransparency = 0.5,
             OutlineColor = Color3_RGB(255, 255, 255),
             OutlineTransparency = 0.3,
         })
+        State.espObjects[player] = hl
     end
 
     if State.espNames then
@@ -1176,7 +1248,7 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 14: FLY ENGINE                                                         ║
+-- ║ MODULE 13: FLY ENGINE (Multi-Mode)                                            ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local flyNoclipConn = nil
 
@@ -1208,10 +1280,12 @@ local function CreateBodyVelocityFly()
     if not State.hrp then return end
     DestroyFlyParts()
     State.flyBodyVel = mk("BodyVelocity", State.hrp, {
+        Name = "BlackZ_FlyVel",
         MaxForce = Vector3_new(1e6, 1e6, 1e6),
         P = 100000, Velocity = Vector3_zero,
     })
     State.flyBodyGyro = mk("BodyGyro", State.hrp, {
+        Name = "BlackZ_FlyGyro",
         MaxTorque = Vector3_new(1e6, 1e6, 1e6),
         P = 10000, CFrame = State.hrp.CFrame,
     })
@@ -1220,14 +1294,16 @@ end
 local function CreateLinearVelocityFly()
     if not State.hrp then return end
     DestroyFlyParts()
-    local attach = mk("Attachment", State.hrp)
+    local attach = mk("Attachment", State.hrp, { Name = "BlackZ_FlyAttach" })
     State.flyLinearVel = mk("LinearVelocity", State.hrp, {
+        Name = "BlackZ_LinearVel",
         Attachment0 = attach,
         MaxForce = 1e6,
         VelocityConstraintMode = Enum.VelocityConstraintMode.Vector,
         VectorVelocity = Vector3_zero,
     })
     State.flyAlignOrient = mk("AlignOrientation", State.hrp, {
+        Name = "BlackZ_AlignOr",
         Attachment0 = attach,
         MaxTorque = 1e6,
         Responsiveness = 200,
@@ -1390,13 +1466,14 @@ RunService.RenderStepped:Connect(function(dt)
 end)
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 15: V-JOYSTICK (Vertical)                                              ║
+-- ║ MODULE 14: V-JOYSTICK (Vertical)                                              ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 CreateVJoystick = function()
     if VJoyGui then return end
     VJoyGui = mk("ScreenGui", nil, {
-        Name = "SystemVJoy_" .. tostring(math_random(100000, 999999)),
-        ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 99995,
+        Name = "BlackZVJoy_" .. tostring(math_random(100000, 999999)),
+        ResetOnSpawn = false, IgnoreGuiInset = true,
+        DisplayOrder = 99995,
     })
     SafeParent(VJoyGui)
     VJoyGui.Enabled = false
@@ -1418,11 +1495,24 @@ CreateVJoystick = function()
     })
     corner(VJoyThumb, 999)
     stroke(VJoyThumb, Color3_new(1, 1, 1), 2, 0.4)
+    gradient(VJoyThumb, Theme.accent, Theme.accent2, 45)
 
     mk("TextLabel", VJoyThumb, {
         Size = UDim2_new(1, 0, 1, 0), BackgroundTransparency = 1,
         Text = "↕", TextColor3 = Color3_new(1, 1, 1),
         TextSize = 20, Font = Enum.Font.GothamBold, ZIndex = 102,
+    })
+    mk("TextLabel", VJoyBase, {
+        Size = UDim2_new(1, 0, 0, 12), Position = UDim2_new(0, 0, 0, -14),
+        BackgroundTransparency = 1, Text = "▲",
+        TextColor3 = Color3_RGB(80, 255, 120),
+        TextSize = 12, Font = Enum.Font.GothamBold, ZIndex = 102,
+    })
+    mk("TextLabel", VJoyBase, {
+        Size = UDim2_new(1, 0, 0, 12), Position = UDim2_new(0, 0, 1, 2),
+        BackgroundTransparency = 1, Text = "▼",
+        TextColor3 = Color3_RGB(255, 100, 100),
+        TextSize = 12, Font = Enum.Font.GothamBold, ZIndex = 102,
     })
 
     local function UpdateVJoy(input)
@@ -1461,13 +1551,14 @@ CreateVJoystick = function()
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 16: H-JOYSTICK                                                         ║
+-- ║ MODULE 15: H-JOYSTICK                                                         ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 CreateHJoystick = function()
     if HJoyGui then return end
     HJoyGui = mk("ScreenGui", nil, {
-        Name = "SystemHJoy_" .. tostring(math_random(100000, 999999)),
-        ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 99994,
+        Name = "BlackZHJoy_" .. tostring(math_random(100000, 999999)),
+        ResetOnSpawn = false, IgnoreGuiInset = true,
+        DisplayOrder = 99994,
     })
     SafeParent(HJoyGui)
     HJoyGui.Enabled = true
@@ -1538,7 +1629,7 @@ CreateHJoystick = function()
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 17: UI COMPONENTS                                                      ║
+-- ║ MODULE 16: UI COMPONENTS                                                      ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local UI = {}
 
@@ -1735,7 +1826,7 @@ function UI.dropdown(parent, text, options, default, callback)
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 18: MAIN UI                                                            ║
+-- ║ MODULE 17: MAIN UI — FIXED BUILD (Chống chồng GUI)                            ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local Pages, TabBtns, CurrentTab = {}, {}, nil
 
@@ -1752,12 +1843,64 @@ local function UpdateTierBadge()
 end
 
 BuildUI = function()
-    if MainGui then pcall(function() MainGui:Destroy() end) end
+    -- ⚠️ FIX: Destroy GUI cũ nếu tồn tại
+    if MainGui then 
+        pcall(function() 
+            MainGui.Enabled = false
+            MainGui:Destroy() 
+        end)
+        MainGui = nil
+        print("[BUILD] Đã destroy MainGui cũ")
+    end
+    
+    -- ⚠️ FIX: Quét sạch MainGui cũ còn sót trong CoreGui
+    pcall(function()
+        for _, obj in ipairs(CoreGui:GetChildren()) do
+            if string_find(obj.Name, "BlackZ_Main") or string_find(obj.Name, "BlackZMain") 
+                or string_find(obj.Name, "SystemMain") then
+                obj:Destroy()
+                print("[BUILD] Cleanup CoreGui:", obj.Name)
+            end
+        end
+    end)
+    
+    -- ⚠️ FIX: Quét sạch trong PlayerGui
+    pcall(function()
+        local pg = LP:FindFirstChild("PlayerGui")
+        if pg then
+            for _, obj in ipairs(pg:GetChildren()) do
+                if string_find(obj.Name, "BlackZ_Main") or string_find(obj.Name, "BlackZMain")
+                    or string_find(obj.Name, "SystemMain") then
+                    obj:Destroy()
+                    print("[BUILD] Cleanup PlayerGui:", obj.Name)
+                end
+            end
+        end
+    end)
+    
+    -- ⚠️ FIX: Quét sạch trong gethui
+    pcall(function()
+        if gethui then
+            local h = gethui()
+            if h then
+                for _, obj in ipairs(h:GetChildren()) do
+                    if string_find(obj.Name, "BlackZ_Main") or string_find(obj.Name, "BlackZMain")
+                        or string_find(obj.Name, "SystemMain") then
+                        obj:Destroy()
+                        print("[BUILD] Cleanup gethui:", obj.Name)
+                    end
+                end
+            end
+        end
+    end)
+    
     Pages = {}
     TabBtns = {}
+    
+    print("[BUILD] Bắt đầu build Main UI")
 
     MainGui = mk("ScreenGui", nil, {
-        Name = "SystemMain_" .. tostring(math_random(100000, 999999)),
+        Name = "BlackZMain_v80",
         ResetOnSpawn = false, IgnoreGuiInset = true,
         DisplayOrder = 99990, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
     })
@@ -1784,7 +1927,7 @@ BuildUI = function()
     })
     local TitleTxt = mk("TextLabel", TitleBar, {
         Size = UDim2_new(1, -100, 1, 0), Position = UDim2_new(0, 12, 0, 0),
-        BackgroundTransparency = 1, Text = "⚡ BLACKZ v7.0 DEFENSE",
+        BackgroundTransparency = 1, Text = "⚡ BLACKZ v8.0",
         Font = Enum.Font.GothamBlack, TextSize = 12,
         TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 12,
     })
@@ -1978,7 +2121,7 @@ BuildUI = function()
             task_wait(0.5)
             pcall(function()
                 defLbl.Text = string_format(
-                    "🛡️ DEFENSE ENGINE v3.0\n" ..
+                    "🛡️ DEFENSE ENGINE v4.0\n" ..
                     "━━━━━━━━━━━━━━━━━━\n" ..
                     "🚫 Kick chặn: %d\n" ..
                     "🌀 Teleport chặn: %d\n" ..
@@ -2051,7 +2194,7 @@ BuildUI = function()
     UI.slider(pFly, "🏎️ Accel", 3, 40, State.flyAccel, function(v) State.flyAccel = v end)
     UI.slider(pFly, "🛑 Brake", 5, 60, State.flyBrake, function(v) State.flyBrake = v end)
 
-    UI.heading(pFly, "🎯 Altitude Lock")
+    UI.heading(pFly, "?? Altitude Lock")
     UI.gridToggle(pFly, "🎯 Lock Độ Cao", false, function(v)
         if v and not GetTierConfig().allowAltitudeLock then
             Notify("error", "VIP Only", "Cần VIP trở lên", 3); return
@@ -2207,11 +2350,13 @@ BuildUI = function()
     end)
     UI.gridButton(dangerGrid, "🗑 Unload", Color3_RGB(255, 60, 60), function()
         DefenseState.ACTIVE = false
+        _G.BlackZ_Alive = false
         if MainGui then MainGui:Destroy() end
         if NotifyGui then NotifyGui:Destroy() end
         if VJoyGui then VJoyGui:Destroy() end
         if HJoyGui then HJoyGui:Destroy() end
         if FloatGui then FloatGui:Destroy() end
+        if HudGui then HudGui:Destroy() end
         Notify("warn", "Unloaded", "Script đã tắt", 2)
     end)
 
@@ -2292,7 +2437,7 @@ BuildUI = function()
         Size = UDim2_new(1, 0, 0, 150),
         BackgroundColor3 = Theme.bgCard, BackgroundTransparency = 0.25,
         Text = string_format(
-            "⚡ BLACKZ VIP FLY v7.0\n" ..
+            "⚡ BLACKZ VIP FLY v8.0\n" ..
             "🛡️ UNIFIED DEFENSE EDITION\n" ..
             "━━━━━━━━━━━━━━━━━━\n" ..
             "👑 Tier: %s\n" ..
@@ -2361,14 +2506,17 @@ BuildUI = function()
             )
         end
     end)
+    
+    print("[BUILD] Main UI hoàn tất")
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 19: FLOATING BUTTONS                                                   ║
+-- ║ MODULE 18: FLOATING BUTTONS                                                   ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 FloatGui = mk("ScreenGui", nil, {
-    Name = "SystemFloats_" .. tostring(math_random(100000, 999999)),
-    ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 99989,
+    Name = "BlackZFloats_" .. tostring(math_random(100000, 999999)),
+    ResetOnSpawn = false, IgnoreGuiInset = true,
+    DisplayOrder = 99989,
 })
 SafeParent(FloatGui)
 
@@ -2409,12 +2557,22 @@ MakeFloatBtn = function(icon, yPos, callback, color)
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 20: KEY UI                                                             ║
+-- ║ MODULE 19: KEY UI — FIXED (Tự destroy sau khi nhập)                           ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local function BuildKeyUI()
+    -- ⚠️ FIX: Xóa key UI cũ nếu có
+    pcall(function()
+        for _, obj in ipairs(CoreGui:GetChildren()) do
+            if string_find(obj.Name, "BlackZ_Key") or string_find(obj.Name, "BlackZKey") then
+                obj:Destroy()
+            end
+        end
+    end)
+    
     local KeyGui = mk("ScreenGui", nil, {
-        Name = "SystemKey_" .. tostring(math_random(100000, 999999)),
-        ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 99999,
+        Name = "BlackZKey_" .. tostring(math_random(100000, 999999)),
+        ResetOnSpawn = false, IgnoreGuiInset = true,
+        DisplayOrder = 99999,
     })
     SafeParent(KeyGui)
 
@@ -2429,7 +2587,7 @@ local function BuildKeyUI()
     local Title = mk("TextLabel", Card, {
         Size = UDim2_new(1, -20, 0, 30),
         Position = UDim2_new(0, 10, 0, 14),
-        BackgroundTransparency = 1, Text = "⚡ BLACKZ v7.0 UNIFIED",
+        BackgroundTransparency = 1, Text = "⚡ BLACKZ v8.0",
         Font = Enum.Font.GothamBlack, TextSize = 18,
         TextXAlignment = Enum.TextXAlignment.Center,
     })
@@ -2471,39 +2629,64 @@ local function BuildKeyUI()
         Font = Enum.Font.GothamMedium, TextSize = 9,
         TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true,
     })
+    
+    -- ⚠️ FIX: Flag chống submit nhiều lần
+    local submitted = false
 
     local function TrySubmit()
+        -- ⚠️ FIX: Nếu đã submit thì bỏ qua
+        if submitted then return end
+        
         local k = KeyBox.Text
         local ok, msg = VerifyKey(k)
         if ok then
+            submitted = true
             MsgLabel.Text = "✅ " .. msg .. " — " .. KeyState.tier
             MsgLabel.TextColor3 = Color3_RGB(80, 255, 120)
-            task_wait(0.6)
-            pcall(function() KeyGui:Destroy() end)
+            
+            -- ⚠️ FIX: Destroy Key UI NGAY LẬP TỨC
+            task_spawn(function()
+                task_wait(0.3)
+                pcall(function()
+                    KeyGui.Enabled = false
+                    KeyGui:Destroy()
+                end)
+                print("[KEY] Key UI đã được destroy")
+            end)
+            
             SafeNotify("✅ Xác thực OK", "Tier: " .. KeyState.tier, 3)
 
-            BuildUI()
-            UpdateTierBadge()
-            CreateHJoystick()
-            CreateVJoystick()
+            -- ⚠️ FIX: Chỉ build UI 1 LẦN DUY NHẤT
+            if not _G.BlackZ_Built then
+                _G.BlackZ_Built = true
+                print("[KEY] Bắt đầu build Main UI lần đầu")
+                
+                BuildUI()
+                UpdateTierBadge()
+                CreateHJoystick()
+                CreateVJoystick()
 
-            MakeFloatBtn("⚡", 15, function()
-                if State.uiOpen then
+                MakeFloatBtn("⚡", 15, function()
+                    if State.uiOpen then
+                        if closeMenu then closeMenu() end
+                    else
+                        if openMenu then openMenu() end
+                    end
+                end, Theme.accent)
+                MakeFloatBtn("🕊", 60, function() ToggleFly() end, Color3_RGB(80, 255, 120))
+                MakeFloatBtn("🚨", 105, function()
                     if closeMenu then closeMenu() end
-                else
-                    if openMenu then openMenu() end
-                end
-            end, Theme.accent)
-            MakeFloatBtn("🕊", 60, function() ToggleFly() end, Color3_RGB(80, 255, 120))
-            MakeFloatBtn("🚨", 105, function()
-                if closeMenu then closeMenu() end
-                if State.flyEnabled then StopFly() end
-                if VJoyGui then VJoyGui.Enabled = false end
-                SafeNotify("🚨 Panic", "Đã ẩn & tắt", 2)
-            end, Color3_RGB(255, 60, 60))
+                    if State.flyEnabled then StopFly() end
+                    if VJoyGui then VJoyGui.Enabled = false end
+                    SafeNotify("🚨 Panic", "Đã ẩn & tắt", 2)
+                end, Color3_RGB(255, 60, 60))
 
-            task_wait(0.3)
-            if openMenu then openMenu() end
+                task_wait(0.3)
+                if openMenu then openMenu() end
+            else
+                print("[KEY] UI đã được build trước đó, bỏ qua")
+                if openMenu then openMenu() end
+            end
         else
             MsgLabel.Text = "❌ " .. msg
             MsgLabel.TextColor3 = Color3_RGB(255, 60, 90)
@@ -2516,10 +2699,10 @@ local function BuildKeyUI()
 end
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 21: HUD SYSTEM                                                         ║
+-- ║ MODULE 20: HUD SYSTEM                                                         ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 HudGui = mk("ScreenGui", nil, {
-    Name = "SystemHUD_" .. tostring(math_random(100000, 999999)),
+    Name = "BlackZHUD_" .. tostring(math_random(100000, 999999)),
     ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 99980,
 })
 SafeParent(HudGui)
@@ -2534,7 +2717,7 @@ stroke(HudFrame, Theme.accent, 1.5, 0.35)
 
 mk("TextLabel", HudFrame, {
     Size = UDim2_new(1, -16, 0, 14), Position = UDim2_new(0, 8, 0, 4),
-    BackgroundTransparency = 1, Text = "⚡ BLACKZ v7.0 DEFENSE",
+    BackgroundTransparency = 1, Text = "⚡ BLACKZ v8.0",
     Font = Enum.Font.GothamBlack, TextSize = 10,
     TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 99981,
 })
@@ -2572,7 +2755,7 @@ task_spawn(function()
 end)
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 22: MAIN LOOPS                                                         ║
+-- ║ MODULE 21: MAIN LOOPS                                                         ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 
 task_spawn(function()
@@ -2766,7 +2949,7 @@ task_spawn(function()
 end)
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 23: HOTKEYS                                                            ║
+-- ║ MODULE 22: HOTKEYS                                                            ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
@@ -2776,9 +2959,18 @@ UserInputService.InputBegan:Connect(function(input, gp)
         if not KeyState.verified then
             SafeNotify("⚠️ Chưa xác thực", "Nhập key trước", 2); return
         end
-        if State.uiOpen then
-            if closeMenu then closeMenu() end
+        -- ⚠️ FIX: Kiểm tra Window tồn tại trước khi toggle
+        if Window and Window.Parent then
+            if State.uiOpen then
+                if closeMenu then closeMenu() end
+            else
+                if openMenu then openMenu() end
+            end
         else
+            -- Nếu Window bị mất → build lại
+            print("[HOTKEY] Window nil, rebuilding...")
+            BuildUI()
+            task_wait(0.1)
             if openMenu then openMenu() end
         end
     elseif input.KeyCode == KS.P then
@@ -2815,39 +3007,42 @@ UserInputService.InputEnded:Connect(function(input, gp)
 end)
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 24: BOOT SEQUENCE                                                      ║
+-- ║ MODULE 23: BOOT SEQUENCE                                                      ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 local function Boot()
     local ok, err = xpcall(function()
         BuildKeyUI()
-        SafeNotify("⚡ BLACKZ v7.0", "Nhập key để bắt đầu (Defense đã chạy ngầm)", 5)
+        SafeNotify("⚡ BLACKZ v8.0", "Nhập key để bắt đầu (Defense đã chạy ngầm)", 5)
     end, function(e)
         return tostring(e) .. "\n" .. debug.traceback()
     end)
     if not ok then
-        DLog("Boot error: " .. tostring(err))
+        print("[BOOT ERROR]", tostring(err))
     end
 end
 
 task_spawn(Boot)
 
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║ MODULE 25: CONSOLE BANNER                                                     ║
+-- ║ MODULE 24: CONSOLE BANNER                                                     ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
 print("═══════════════════════════════════════════════════════════════")
-print("⚡ BLACKZ VIP FLY v7.0 — UNIFIED DEFENSE EDITION")
+print("⚡ BLACKZ VIP FLY v8.0 — FULL FIXED EDITION")
 print("═══════════════════════════════════════════════════════════════")
 print("  🔑 Keys: blackzfree | blackzmid | blackzpro")
-print("  🛡️ DEFENSE ENGINE (tự động chạy ngầm, không cần bật):")
+print("  🔧 FIXES:")
+print("     ✅ Cleanup GUI cũ tự động khi Execute lại")
+print("     ✅ Key UI destroy ngay sau khi nhập")
+print("     ✅ Chống chồng Menu khi bấm ⚡ nhiều lần")
+print("     ✅ Chỉ build UI 1 lần duy nhất (flag _G.BlackZ_Built)")
+print("  🛡️ DEFENSE ENGINE v4.0 (tự động chạy ngầm):")
 print("     • Hook __namecall, __index, __newindex")
 print("     • Hook trực tiếp Player.Kick + TeleportService.Teleport")
 print("     • Chặn Remote độc hại (Kick/Ban/Detect/AntiCheat...)")
 print("     • Xóa Anti-Cheat LocalScript")
 print("     • Memory Scanner quét GC")
-print("     • Watchdog 0.5s tự khôi phục hook")
+print("     • Watchdog 1s tự khôi phục hook")
 print("     • Auto-Reconnect khi mất kết nối")
-print("     • Network Ownership + Position Smoothing")
-print("     • Debug hooks che giấu stack trace")
 print("  ✈️ Fly Modes: CFrameBypass / BodyVelocity")
 print("     LinearVelocity / CFrame / Camera / Behind / Tween")
 print("  👻 Invisible: 100% full")
